@@ -1,88 +1,70 @@
-import torch
-import torch.nn as nn
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score
+from itertools import combinations
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
-#!Importamos la clase de la red neuronal
-from mpl import NeuralNet
-    
-#!Funcion para leer el archivo csv
-def readFile(f):
+# Cargar los datos
+datos_originales = pd.read_csv('irisbin.csv', header=None)
+caracteristicas_originales = datos_originales.iloc[:, :-3].values
+etiquetas_originales = datos_originales.iloc[:, -3:].values
 
-    data = pd.read_csv(f)
+# Reducción de dimensionalidad con PCA
+pca = PCA(n_components=2)
+caracteristicas_pca = pca.fit_transform(caracteristicas_originales)
 
-    #*El archivo tiene cuatro columnas como entradas y tres de salidas
-    inputs = data.iloc[:,:4]
-    outputs = data.iloc[:,4:]
+# Dividir los datos en conjuntos de entrenamiento y prueba
+caracteristicas_entrenamiento, caracteristicas_prueba, etiquetas_entrenamiento, etiquetas_prueba = train_test_split(caracteristicas_pca, etiquetas_originales, test_size=0.2, random_state=42)
 
-    #*Usando la libreria de sklearn vamos a dividir el set de datos en 80% para train y 20% para test
-    inputTrain, inputTest, outputTrain, outputTest = train_test_split(inputs, outputs, test_size=0.2, random_state=2)
+# Crear y entrenar un perceptrón multicapa
+modelo_mlp = MLPClassifier(hidden_layer_sizes=(100,), max_iter=1000, random_state=42)
+modelo_mlp.fit(caracteristicas_entrenamiento, etiquetas_entrenamiento)
 
-    print(f"{inputTrain.shape}, {inputTest.shape}, {outputTrain.shape}, {outputTest.shape}")
+# Validar resultados usando leave-k-out
+def leave_k_out(caracteristicas, etiquetas, k):
+    n = len(caracteristicas)
+    precisiones = []
+    for indices in combinations(range(n), k):
+        mascara = np.ones(n, dtype=bool)
+        mascara[list(indices)] = False
+        caracteristicas_entrenamiento, caracteristicas_validacion = caracteristicas[mascara], caracteristicas[~mascara]
+        etiquetas_entrenamiento, etiquetas_validacion = etiquetas[mascara], etiquetas[~mascara]
+        modelo_mlp.fit(caracteristicas_entrenamiento, etiquetas_entrenamiento)
+        etiquetas_predichas = modelo_mlp.predict(caracteristicas_validacion)
+        precisiones.append(accuracy_score(etiquetas_validacion, etiquetas_predichas))
+    return precisiones
 
-    #*Regresa todos los sets creados
-    return inputs, outputs, inputTrain, inputTest, outputTrain, outputTest
+# Validar resultados usando leave-one-out
+def leave_one_out(caracteristicas, etiquetas):
+    return leave_k_out(caracteristicas, etiquetas, 1)
 
-#!Creamos las variables para guardar inputs y los tensores
-#*Leemos el archivo
-inputs, outputs, inputTrain, inputTest, outputTrain, outputTest = readFile("irisbin.csv")
+# Calcular el error esperado de clasificación, promedio y desviación estándar
+k_out_precisions = leave_k_out(caracteristicas_originales, etiquetas_originales, 1)  # Usando leave-one-out como ejemplo
+error_esperado = 1 - np.mean(k_out_precisions)
+precision_promedio = np.mean(k_out_precisions)
+desviacion_estandar = np.std(k_out_precisions)
 
-#*Variables para guardar los tensores de la red neuronal
-#*Los tensores se van a configurar para que los ejecute el cpu
-tenInputTrain = torch.from_numpy(inputTrain.values).float().to("cpu")
-tenInputTest = torch.from_numpy(inputTest.values).float().to("cpu")
-tenOutputTrain = torch.from_numpy(outputTrain.values).float().to("cpu")
-tenOutputTest = torch.from_numpy(outputTest.values).float().to("cpu")
+print("Error esperado de clasificación:", error_esperado)
+print("Precisión promedio:", precision_promedio)
+print("Desviación estándar de la precisión:", desviacion_estandar)
 
-#!Creamos las variables que seran utilizadas para la red neuronal
-learningRate = 0.001
-epochs = 5000
-#*Funcion de perdida
-lossFun = nn.BCELoss()
+# Asignar un valor de color único a cada clase
+clases_unicas = np.unique(etiquetas_originales)
+colores_clases = np.linspace(0, 1, len(clases_unicas))
 
-#*Funcion para convertir nuestros output donde -1=0 y 1=1
-def transformOutput(output):
-    #*Recorre todo el tensor y convierte cada output con el valor correspondiente
-    return torch.where(output == -1, torch.tensor(0.0), torch.tensor(1.0))
+# Crear un diccionario que mapea las clases a los colores
+mapeo_clase_color = {clase_unica: color for clase_unica, color in zip(clases_unicas, colores_clases)}
 
-#*Transforma la prediccion en el output que esperamos
-def trasnformPredict(output):
-    return torch.where(output > 0.5, torch.tensor(1.0), torch.tensor(-1.0))
+# Asignar los colores a cada muestra en función de su clase
+colores = [mapeo_clase_color[etiqueta[0]] for etiqueta in etiquetas_originales]
 
-#!Creamos nuestro objeto de la red neuronal y empieza el entrenamiento
+# Graficar la distribución de clases para el dataset Irisbin después de la reducción de dimensionalidad
+plt.scatter(caracteristicas_pca[:, 0], caracteristicas_pca[:, 1], c=colores, cmap='viridis')
+plt.xlabel('Componente Principal 1')
+plt.ylabel('Componente Principal 2')
+plt.title('Distribución de clases para el dataset Irisbin después de PCA')
+plt.show()
 
-myNet = NeuralNet(4, 3, 3, 3)
-
-#*Optimizador para calcular el gradiente descendiente
-optim = torch.optim.Adam(params=myNet.parameters(), lr=learningRate)
-
-print(f"Comienza el entrenamiento con {epochs} epocas...")
-for i in range(epochs):
-    #*Se obtiene una prediccion en base al tensor de entradas de entrenamiento
-    prediction = myNet(tenInputTrain)
-    #*Calcula la funcion de perdida
-    #*Convierte nuestro output esperado a terminos binarios, esto con el fin
-    #* de que la red neuronal nos de valores esperados
-    perdida = lossFun(prediction, transformOutput(tenOutputTrain))
-    #*Cada 200 epocas imprime la precision durante el entrenamiento
-    if i % 200 == 0:
-        #!Convierte los tensores a arrays de numpy para calcular la precision
-        predictNump = trasnformPredict(prediction).cpu().detach().numpy()
-        outputNump = transformOutput(tenOutputTrain).cpu().detach().numpy()
-        #*Se hace la suma de los elementos para obtener un array con las predicciones correctas
-        buenasPred = np.sum(predictNump == outputNump)
-        #*Obtenemos el total de outputs
-        lenOutput = len(outputNump)
-        #*Calcula la precision diviendo el numero de outputs esperado con el numero de predicciones buenas
-        accuracy = buenasPred / lenOutput
-        #*Imprimimos en porcentaje
-        print(f"Precision de la red en la epoca {i}: {accuracy*100:.2f}%")
-    #*Hace el backpropagation y con el optimizador se recalculan los pesos
-    perdida.backward()
-    optim.step()
-    optim.zero_grad()
-
-#!Se realiza el test despues del entrenamiento
-prediction = myNet(tenInputTest)
-print(f"Tensor obtenido:\n\n {trasnformPredict(prediction)}\nTensor esperado:\n\n {tenOutputTest}")
