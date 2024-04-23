@@ -6,6 +6,7 @@ from sklearn.metrics import accuracy_score
 from itertools import combinations
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Cargar los datos
 datos_originales = pd.read_csv('irisbin.csv', header=None)
@@ -37,10 +38,6 @@ def leave_k_out(caracteristicas, etiquetas, k):
         precisiones.append(accuracy_score(etiquetas_validacion, etiquetas_predichas))
     return precisiones
 
-# Validar resultados usando leave-one-out
-def leave_one_out(caracteristicas, etiquetas):
-    return leave_k_out(caracteristicas, etiquetas, 1)
-
 # Calcular el error esperado de clasificación, promedio y desviación estándar
 k_out_precisions = leave_k_out(caracteristicas_originales, etiquetas_originales, 1)  # Usando leave-one-out como ejemplo
 error_esperado = 1 - np.mean(k_out_precisions)
@@ -51,20 +48,26 @@ print("Error esperado de clasificación:", error_esperado)
 print("Precisión promedio:", precision_promedio)
 print("Desviación estándar de la precisión:", desviacion_estandar)
 
-# Asignar un valor de color único a cada clase
-clases_unicas = np.unique(etiquetas_originales)
-colores_clases = np.linspace(0, 1, len(clases_unicas))
+# Asignar un valor de color único a cada clase usando una paleta de colores
+paleta_colores = sns.color_palette("husl", len(np.unique(etiquetas_originales)))
+colores_clases = [paleta_colores[i] for i in range(len(np.unique(etiquetas_originales)))]
 
 # Crear un diccionario que mapea las clases a los colores
-mapeo_clase_color = {clase_unica: color for clase_unica, color in zip(clases_unicas, colores_clases)}
+mapeo_clase_color = {clase_unica: color for clase_unica, color in zip(np.unique(etiquetas_originales), colores_clases)}
 
 # Asignar los colores a cada muestra en función de su clase
 colores = [mapeo_clase_color[etiqueta[0]] for etiqueta in etiquetas_originales]
 
 # Graficar la distribución de clases para el dataset Irisbin después de la reducción de dimensionalidad
-plt.scatter(caracteristicas_pca[:, 0], caracteristicas_pca[:, 1], c=colores, cmap='viridis')
+plt.figure(figsize=(8, 6))
+for clase, color in mapeo_clase_color.items():
+    plt.scatter(caracteristicas_pca[etiquetas_originales[:, 0] == clase, 0],
+                caracteristicas_pca[etiquetas_originales[:, 0] == clase, 1],
+                c=[color],
+                label=f'Clase {int(clase)}')
+
 plt.xlabel('Componente Principal 1')
 plt.ylabel('Componente Principal 2')
 plt.title('Distribución de clases para el dataset Irisbin después de PCA')
+plt.legend(title='Clases')
 plt.show()
-
